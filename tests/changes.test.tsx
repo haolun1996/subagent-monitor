@@ -66,3 +66,71 @@ test('a subagent edit, write and rm show as M, A and D with line ranges', async 
   expect((await ui.find({ type: 'Text', text: /1 added · 1 modified · 1 deleted/ }))?.text).toContain('1 deleted')
   await ui.unmount()
 })
+
+test('a rename shows as R, a finish toasts a summary, and the transcript button opens the agent', async ($, on) => {
+  on('command.register', () => ({ value: { command: 'subagent-changes' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.cwd', () => ({ value: '/repo' }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'ag2' }))
+  on('turn.complete', () => ({ text: '' }))
+  const toasts: string[] = []
+  const statuses: (string | undefined)[] = []
+  const views: unknown[] = []
+  on('ui.toast', (_, e) => (toasts.push(e.text), { value: undefined }))
+  on('ui.status', (_, e) => (statuses.push(e.text), { value: undefined }))
+  on('ui.view', (_, e) => (views.push(e), { value: {} }))
+  // Before the move: a.ts exists, docs/ is a folder; after: docs/a.ts exists.
+  let moved = false
+  on('fs.exists', (_, e) => ({ value: e.path.endsWith('/a.ts') && !e.path.includes('docs') ? !moved : moved }))
+  on('fs.stat', (_, e) => {
+    if (e.path.endsWith('/docs')) return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } }
+    throw new Error('ENOENT')
+  })
+  on('tool.call', (_, e) => {
+    if (e.tool === 'Bash') moved = true
+    return { result: {} }
+  })
+
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await $.agent.spawn({ prompt: 'tidy', description: 'Tidy docs', subagentType: 'Explore' })
+  await $.tool.call({ tool: 'Bash', command: 'mv src/a.ts docs/', agentId: 'ag2' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /^src\/a\.ts → $/ }))?.text).toBe('src/a.ts → ')
+  expect((await ui.find({ type: 'Text', text: /^docs\/a\.ts$/ }))?.text).toBe('docs/a.ts')
+  expect(statuses.at(-1)).toBe('subagents: 1 running · 1 file changed')
+
+  await ui.press({ key: 'transcript-ag2' })
+  expect(views).toEqual([{ agentId: 'ag2' }])
+  await ui.unmount()
+
+  await $.turn.complete({ answer: 'ok', durationMs: 1, isAborted: false, turnId: 't1', agentId: 'ag2', reason: 'answer' })
+  expect(toasts.at(-1)).toBe('Tidy docs finished: 1 renamed')
+  expect(statuses.at(-1)).toBe('subagents: 1 done · 1 file changed')
+})
+
+test('mkdir and mv in one command record the file inside the new folder', async ($, on) => {
+  on('command.register', () => ({ value: { command: 'subagent-changes' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.cwd', () => ({ value: '/repo' }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('agent.list', () => ({ value: [{ id: 'ag3', description: 'Archive', type: 'general-purpose', status: 'running' }] }))
+  on('ui.status', () => ({ value: undefined }))
+  // archive/ does not exist until the command runs.
+  let ran = false
+  const after = new Set(['/repo/archive', '/repo/archive/notes.md'])
+  on('fs.exists', (_, e) => ({ value: ran ? after.has(e.path) : e.path === '/repo/notes.md' }))
+  on('fs.stat', () => {
+    throw new Error('ENOENT')
+  })
+  on('tool.call', () => ((ran = true), { result: {} }))
+
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await $.tool.call({ tool: 'Bash', command: 'mkdir archive && mv notes.md archive', agentId: 'ag3' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /^notes\.md → $/ }))?.text).toBe('notes.md → ')
+  expect((await ui.find({ type: 'Text', text: /^archive\/notes\.md$/ }))?.text).toBe('archive/notes.md')
+  await ui.unmount()
+})

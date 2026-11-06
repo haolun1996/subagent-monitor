@@ -1,9 +1,9 @@
-export type ChangeKind = 'added' | 'modified' | 'deleted'
+export type ChangeKind = 'added' | 'modified' | 'deleted' | 'renamed'
 
 export type Hunk = {
-  /** First line of the change in the new file (1-based). */
+  /** First changed line in the new file (1-based). */
   start: number
-  /** Last line of the change in the new file. */
+  /** Last changed line in the new file. */
   end: number
   added: number
   removed: number
@@ -12,6 +12,8 @@ export type Hunk = {
 export type FileChange = {
   path: string
   kind: ChangeKind
+  /** Where the file was before a rename (`mv`, `git mv`). */
+  from?: string
   /** How many tool calls touched it. */
   edits: number
   added: number
@@ -28,6 +30,8 @@ export type AgentRecord = {
   description: string
   type: string
   isDone: boolean
+  /** Ended by an abort rather than an answer. */
+  isStopped: boolean
   startedAt: number
   files: FileChange[]
 }
