@@ -1,0 +1,6 @@
+{
+  "name": "subagent-changes",
+  "version": "0.1.0",
+  "description": "A pane that tracks each subagent and the files it added, modified or deleted, with the changed lines",
+  "types": "./types/index.d.ts"
+}

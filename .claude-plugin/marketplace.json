@@ -1,0 +1,5 @@
+{
+  "name": "subagent-monitor",
+  "owner": { "name": "haolun1996" },
+  "plugins": [{ "name": "subagent-changes", "source": "./" }]
+}
